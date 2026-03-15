@@ -4,10 +4,11 @@ A simple Streamlit application that searches across multiple research databases 
 
 ## Features
 
-- **Multi-source search**: arXiv, Semantic Scholar, OpenAlex
+- **Multi-source search**: arXiv, Semantic Scholar, OpenAlex, CrossRef
 - **Dual search modes**: By topic/title or by author name
 - **Clean interface**: View abstracts and metadata
 - **External links**: Click to view full papers at source
+- **Conference coverage**: Better access to ICML, NeurIPS, and other conference papers
 
 ## Setup
 
@@ -36,5 +37,14 @@ streamlit run app.py
 - **arXiv**: Open access papers in physics, math, CS, etc.
 - **Semantic Scholar**: AI-powered academic search
 - **OpenAlex**: Open catalog of scholarly papers
+- **CrossRef**: Conference proceedings (ICML, NeurIPS, etc.) and journal articles
+
+## Institutional Sources Supported
+
+The aggregator can find papers from major institutions and regulatory bodies:
+- **NIST**: AI Risk Management Framework and standards
+- **Federal Reserve**: Supervisory guidance and research
+- **Academic conferences**: ICML, NeurIPS, ICLR, etc.
+- **Research institutions**: Papers from government and academic bodies
 
 No API keys required - uses public endpoints.

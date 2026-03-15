@@ -9,7 +9,9 @@ class ResearchAggregator:
         self.base_urls = {
             'arxiv': 'http://export.arxiv.org/api/query',
             'semantic_scholar': 'https://api.semanticscholar.org/graph/v1/paper/search',
-            'openalex': 'https://api.openalex.org/works'
+            'openalex': 'https://api.openalex.org/works',
+            'crossref': 'https://api.crossref.org/works',
+            'core': 'https://api.core.ac.uk/v3/search/works'
         }
 
     def search_arxiv(self, query: str, max_results: int = 10) -> List[Dict]:
@@ -127,10 +129,96 @@ class ResearchAggregator:
             st.error(f"Error searching OpenAlex: {e}")
         return []
 
+    def search_crossref(self, query: str, max_results: int = 10) -> List[Dict]:
+        """Search CrossRef for conference papers and journal articles"""
+        params = {
+            'query': query,
+            'rows': max_results,
+            'select': 'title,author,abstract,URL,published-print,container-title,type'
+        }
+
+        try:
+            response = requests.get(self.base_urls['crossref'], params=params)
+            if response.status_code == 200:
+                data = response.json()
+                papers = []
+                for work in data.get('message', {}).get('items', []):
+                    authors = work.get('author', [])
+                    author_names = []
+                    for author in authors:
+                        given = author.get('given', '')
+                        family = author.get('family', '')
+                        if given and family:
+                            author_names.append(f"{given} {family}")
+                        elif family:
+                            author_names.append(family)
+
+                    # Get publication date
+                    pub_date = ''
+                    if work.get('published-print', {}).get('date-parts'):
+                        year = work['published-print']['date-parts'][0][0]
+                        pub_date = str(year)
+
+                    # Get venue (journal/conference name)
+                    venue = ''
+                    if work.get('container-title'):
+                        venue = work['container-title'][0] if work['container-title'] else ''
+
+                    paper = {
+                        'title': work.get('title', [''])[0] if work.get('title') else '',
+                        'authors': ', '.join(author_names),
+                        'abstract': work.get('abstract', 'No abstract available'),
+                        'url': work.get('URL', ''),
+                        'published': pub_date,
+                        'venue': venue,
+                        'type': work.get('type', ''),
+                        'source': 'CrossRef'
+                    }
+                    papers.append(paper)
+                return papers
+        except Exception as e:
+            st.error(f"Error searching CrossRef: {e}")
+        return []
+
+    def search_core(self, query: str, max_results: int = 10) -> List[Dict]:
+        """Search CORE for academic papers"""
+        headers = {
+            'Authorization': 'Bearer YOUR_API_KEY_HERE'  # You'd need to register for CORE API
+        }
+        params = {
+            'q': query,
+            'limit': max_results
+        }
+
+        try:
+            response = requests.get(self.base_urls['core'], params=params, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                papers = []
+                for work in data.get('results', []):
+                    authors_list = work.get('authors', [])
+                    author_names = [author.get('name', '') for author in authors_list if author.get('name')]
+
+                    paper = {
+                        'title': work.get('title', ''),
+                        'authors': ', '.join(author_names),
+                        'abstract': work.get('abstract', 'No abstract available'),
+                        'url': work.get('downloadUrl', '') or work.get('urls', [''])[0] if work.get('urls') else '',
+                        'published': str(work.get('yearPublished', '')),
+                        'venue': work.get('journals', [{}])[0].get('title', '') if work.get('journals') else '',
+                        'source': 'CORE'
+                    }
+                    papers.append(paper)
+                return papers
+        except Exception as e:
+            # CORE API requires authentication, so we'll skip it for now
+            pass
+        return []
+
     def search_by_author(self, author_name: str, max_results: int = 10) -> List[Dict]:
         """Search for papers by author name"""
         # Request more from each source to ensure we get enough results
-        target_per_source = max_results // 2 + 3  # Split between 2 sources with buffer
+        target_per_source = max_results // 3 + 2  # Split between 3 sources with buffer
 
         arxiv_query = f'au:{author_name}'
         arxiv_results = self.search_arxiv(arxiv_query, target_per_source)
@@ -139,15 +227,19 @@ class ResearchAggregator:
         ss_query = f'author:{author_name}'
         ss_results = self.search_semantic_scholar(ss_query, target_per_source)
 
+        # CrossRef author search
+        crossref_query = f'author:{author_name}'
+        crossref_results = self.search_crossref(crossref_query, target_per_source)
+
         # Combine and limit to requested amount
-        all_results = arxiv_results + ss_results
+        all_results = arxiv_results + ss_results + crossref_results
         return all_results[:max_results]
 
 def main():
     st.set_page_config(page_title="Research Aggregator", page_icon="📚", layout="wide")
 
     st.title("📚 Research Paper Aggregator")
-    st.markdown("Search across multiple research databases: arXiv, Semantic Scholar, and OpenAlex")
+    st.markdown("Search across multiple research databases: arXiv, Semantic Scholar, OpenAlex, and CrossRef")
 
     aggregator = ResearchAggregator()
 
@@ -172,13 +264,14 @@ def main():
 
                 if search_type == "Topic/Title":
                     # Search all databases for topic/title - request more from each to ensure we get enough results
-                    target_per_source = max_results // 3 + 2  # Add buffer to account for failures
+                    target_per_source = max_results // 4 + 2  # Now splitting among 4 sources
                     arxiv_papers = aggregator.search_arxiv(query, target_per_source)
                     ss_papers = aggregator.search_semantic_scholar(query, target_per_source)
                     openalex_papers = aggregator.search_openalex(query, target_per_source)
+                    crossref_papers = aggregator.search_crossref(query, target_per_source)
 
                     # Combine and limit to requested amount
-                    all_papers = arxiv_papers + ss_papers + openalex_papers
+                    all_papers = arxiv_papers + ss_papers + openalex_papers + crossref_papers
                     all_papers = all_papers[:max_results]  # Trim to exact requested amount
                 else:
                     # Search by author
