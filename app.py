@@ -14,6 +14,95 @@ class ResearchAggregator:
             'core': 'https://api.core.ac.uk/v3/search/works'
         }
 
+    def classify_document_type(self, paper: Dict) -> str:
+        """Classify document type based on content and source"""
+        title_lower = paper.get('title', '').lower()
+        venue_lower = paper.get('venue', '').lower()
+        authors_lower = paper.get('authors', '').lower()
+        source_lower = paper.get('source', '').lower()
+
+        # Regulatory/Institutional patterns
+        regulatory_keywords = [
+            'federal reserve', 'sr letter', 'guidance', 'supervisory', 'regulatory',
+            'nist', 'framework', 'compliance', 'basel', 'regulation', 'policy',
+            'central bank', 'fed', 'treasury', 'sec', 'occ', 'fdic', 'bis',
+            'risk management', 'prudential', 'capital requirements', 'stress test'
+        ]
+
+        # Conference patterns
+        conference_keywords = [
+            'icml', 'neurips', 'nips', 'iclr', 'aaai', 'ijcai', 'kdd', 'proceedings',
+            'conference', 'workshop', 'symposium', 'annual meeting', 'acm',
+            'ieee conference', 'international conference'
+        ]
+
+        # Check title, venue, and authors
+        text_to_check = f"{title_lower} {venue_lower} {authors_lower}"
+
+        # Priority: Regulatory first (more specific)
+        if any(keyword in text_to_check for keyword in regulatory_keywords):
+            return 'regulatory'
+
+        # Check for conference content
+        if any(keyword in text_to_check for keyword in conference_keywords):
+            return 'conference'
+
+        # Check venue for journal patterns
+        journal_patterns = ['journal', 'review', 'letters', 'transactions', 'quarterly']
+        if any(pattern in venue_lower for pattern in journal_patterns):
+            return 'journal'
+
+        # Default to research paper
+        return 'research'
+
+    def display_paper_card(self, paper: Dict):
+        """Display individual paper card with appropriate styling and icons"""
+        doc_type = paper.get('doc_type', 'research')
+
+        # Choose icon and styling based on document type
+        if doc_type == 'regulatory':
+            icon = "🏛️"
+            badge_color = "red"
+            badge_text = "REGULATORY"
+        elif doc_type == 'conference':
+            icon = "🎯"
+            badge_color = "blue"
+            badge_text = "CONFERENCE"
+        elif doc_type == 'journal':
+            icon = "📋"
+            badge_color = "green"
+            badge_text = "JOURNAL"
+        else:
+            icon = "📄"
+            badge_color = "gray"
+            badge_text = "RESEARCH"
+
+        with st.expander(f"{icon} {paper['title']}", expanded=False):
+            # Document type badge
+            st.markdown(f'<span style="background-color: {badge_color}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: bold;">{badge_text}</span>', unsafe_allow_html=True)
+
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.write(f"**Authors:** {paper['authors']}")
+                st.write(f"**Source:** {paper['source']}")
+                if paper.get('published'):
+                    st.write(f"**Published:** {paper['published']}")
+                if paper.get('venue'):
+                    st.write(f"**Venue:** {paper['venue']}")
+                if paper.get('type'):
+                    st.write(f"**Type:** {paper['type']}")
+
+                if paper['abstract'] and paper['abstract'] != 'No abstract available':
+                    with st.expander("Abstract", expanded=False):
+                        st.write(paper['abstract'])
+
+            with col2:
+                if paper['url']:
+                    st.link_button("📖 View Full Paper", paper['url'], use_container_width=True)
+                else:
+                    st.info("No direct link available")
+
     def search_arxiv(self, query: str, max_results: int = 10) -> List[Dict]:
         """Search arXiv for papers"""
         params = {
@@ -278,29 +367,62 @@ def main():
                     all_papers = aggregator.search_by_author(query, max_results)
 
                 if all_papers:
+                    # Classify and categorize papers
+                    research_papers = []
+                    regulatory_docs = []
+                    conference_papers = []
+                    journal_papers = []
+
+                    for paper in all_papers:
+                        doc_type = aggregator.classify_document_type(paper)
+                        paper['doc_type'] = doc_type
+
+                        if doc_type == 'regulatory':
+                            regulatory_docs.append(paper)
+                        elif doc_type == 'conference':
+                            conference_papers.append(paper)
+                        elif doc_type == 'journal':
+                            journal_papers.append(paper)
+                        else:
+                            research_papers.append(paper)
+
                     st.success(f"Found {len(all_papers)} papers")
 
-                    for i, paper in enumerate(all_papers):
-                        with st.expander(f"📄 {paper['title']}", expanded=False):
-                            col1, col2 = st.columns([2, 1])
+                    # Create tabs for different document types
+                    tab1, tab2, tab3, tab4 = st.tabs([
+                        f"📄 Research Papers ({len(research_papers)})",
+                        f"🏛️ Regulatory Guidance ({len(regulatory_docs)})",
+                        f"🎯 Conference Papers ({len(conference_papers)})",
+                        f"📋 Journal Articles ({len(journal_papers)})"
+                    ])
 
-                            with col1:
-                                st.write(f"**Authors:** {paper['authors']}")
-                                st.write(f"**Source:** {paper['source']}")
-                                if paper.get('published'):
-                                    st.write(f"**Published:** {paper['published']}")
-                                if paper.get('venue'):
-                                    st.write(f"**Venue:** {paper['venue']}")
+                    with tab1:
+                        if research_papers:
+                            for paper in research_papers:
+                                aggregator.display_paper_card(paper)
+                        else:
+                            st.info("No research papers found in this category.")
 
-                                if paper['abstract']:
-                                    with st.expander("Abstract", expanded=False):
-                                        st.write(paper['abstract'])
+                    with tab2:
+                        if regulatory_docs:
+                            for paper in regulatory_docs:
+                                aggregator.display_paper_card(paper)
+                        else:
+                            st.info("No regulatory documents found.")
 
-                            with col2:
-                                if paper['url']:
-                                    st.link_button("📖 View Full Paper", paper['url'], use_container_width=True)
-                                else:
-                                    st.info("No direct link available")
+                    with tab3:
+                        if conference_papers:
+                            for paper in conference_papers:
+                                aggregator.display_paper_card(paper)
+                        else:
+                            st.info("No conference papers found.")
+
+                    with tab4:
+                        if journal_papers:
+                            for paper in journal_papers:
+                                aggregator.display_paper_card(paper)
+                        else:
+                            st.info("No journal articles found.")
                 else:
                     st.warning("No papers found. Try different keywords or check your search terms.")
         else:
