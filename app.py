@@ -129,14 +129,17 @@ class ResearchAggregator:
 
     def search_by_author(self, author_name: str, max_results: int = 10) -> List[Dict]:
         """Search for papers by author name"""
+        # Request more from each source to ensure we get enough results
+        target_per_source = max_results // 2 + 3  # Split between 2 sources with buffer
+
         arxiv_query = f'au:{author_name}'
-        arxiv_results = self.search_arxiv(arxiv_query, max_results)
+        arxiv_results = self.search_arxiv(arxiv_query, target_per_source)
 
         # For Semantic Scholar, we'll search by author in the query
         ss_query = f'author:{author_name}'
-        ss_results = self.search_semantic_scholar(ss_query, max_results)
+        ss_results = self.search_semantic_scholar(ss_query, target_per_source)
 
-        # Combine results
+        # Combine and limit to requested amount
         all_results = arxiv_results + ss_results
         return all_results[:max_results]
 
@@ -168,11 +171,15 @@ def main():
                 all_papers = []
 
                 if search_type == "Topic/Title":
-                    # Search all databases for topic/title
-                    arxiv_papers = aggregator.search_arxiv(query, max_results//3)
-                    ss_papers = aggregator.search_semantic_scholar(query, max_results//3)
-                    openalex_papers = aggregator.search_openalex(query, max_results//3)
+                    # Search all databases for topic/title - request more from each to ensure we get enough results
+                    target_per_source = max_results // 3 + 2  # Add buffer to account for failures
+                    arxiv_papers = aggregator.search_arxiv(query, target_per_source)
+                    ss_papers = aggregator.search_semantic_scholar(query, target_per_source)
+                    openalex_papers = aggregator.search_openalex(query, target_per_source)
+
+                    # Combine and limit to requested amount
                     all_papers = arxiv_papers + ss_papers + openalex_papers
+                    all_papers = all_papers[:max_results]  # Trim to exact requested amount
                 else:
                     # Search by author
                     all_papers = aggregator.search_by_author(query, max_results)
