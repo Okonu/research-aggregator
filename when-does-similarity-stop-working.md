@@ -273,9 +273,9 @@ Sklearn's handwritten digits: 1,797 samples of 8×8 pixel images (64 dimensions)
 ```bash
 git clone git@github.com:Okonu/experiments.git
 cd experiments
-pip install numpy scikit-learn
+pip install numpy scikit-learn matplotlib
 
-python experiments/cosine_concentration/cosine_experiment.py
+python cosine_concentration/cosine_experiment.py
 ```
 
 ---
@@ -455,5 +455,5 @@ Output is deterministic given the seed. Expected runtime: under 2 minutes on CPU
 ---
 
 *Sequel to: [When Does Learning Beat Random?](https://okonu.hashnode.dev/when-does-learning-beat-random)*
-*Code: `experiments/cosine_concentration/cosine_experiment.py`*
+*Code: [cosine_concentration/cosine_experiment.py](https://github.com/Okonu/experiments/blob/main/cosine_concentration/cosine_experiment.py)*
 *Papers retrieved via: `app.py` (Research Aggregator)*
