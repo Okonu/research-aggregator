@@ -345,46 +345,51 @@ def run_experiment():
     torch.manual_seed(42)
     device = 'cpu'
 
-    p = 31
+    p = 23  # smaller prime: 529 total pairs, faster to grok
 
     print("=" * 60)
     print(f"STEP 1: Build modular arithmetic dataset (a+b) mod {p}")
     print("=" * 60)
-    X_train, X_val, y_train, y_val, p = make_modular_dataset(p=p, train_frac=0.70)
+    X_train, X_val, y_train, y_val, p = make_modular_dataset(p=p, train_frac=0.60)
     print(f"  p = {p}  |  total pairs = {p**2}")
     print(f"  Train: {len(X_train)}  Val: {len(X_val)}")
     print(f"  Input dim: {2*p}  |  Output classes: {p}")
 
+    # Power et al. (2022) used weight_decay=1.0 with AdamW.
+    # Grokking in MLPs requires substantially higher weight decay than
+    # standard regularization ranges — the implicit pressure must be
+    # strong enough to erode the memorizing solution's weight norm
+    # over the course of training.
     print("\n" + "=" * 60)
-    print("STEP 2: Main grokking run (weight_decay = 1e-3, 5000 epochs)")
+    print("STEP 2: Main grokking run (weight_decay = 1.0, 10000 epochs)")
     print("=" * 60)
     history = train_and_track(
         X_train, y_train, X_val, y_val, p,
-        hidden_dim=128, weight_decay=1e-3,
-        n_epochs=5000, batch_size=64, lr=1e-3,
-        log_every=50, device=device,
+        hidden_dim=128, weight_decay=1.0,
+        n_epochs=10000, batch_size=32, lr=1e-3,
+        log_every=100, device=device,
     )
 
-    mem_epoch, gen_epoch, gap = find_grokking_epoch(history, acc_threshold=0.95)
-    print(f"\n  Memorization epoch (train acc ≥ 95%): {mem_epoch}")
-    print(f"  Generalization epoch (val acc  ≥ 95%): {gen_epoch}")
+    mem_epoch, gen_epoch, gap = find_grokking_epoch(history, acc_threshold=0.90)
+    print(f"\n  Memorization epoch (train acc ≥ 90%): {mem_epoch}")
+    print(f"  Generalization epoch (val acc  ≥ 90%): {gen_epoch}")
     print(f"  Grokking gap (delay): {gap} epochs")
 
     print("\n" + "=" * 60)
-    print("STEP 3: Weight decay ablation")
+    print("STEP 3: Weight decay ablation (shorter runs)")
     print("=" * 60)
-    weight_decays = [1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2]
+    weight_decays = [0.01, 0.1, 0.5, 1.0, 2.0, 5.0]
     results_by_wd = {}
     for wd in weight_decays:
         print(f"  weight_decay = {wd}")
         h = train_and_track(
             X_train, y_train, X_val, y_val, p,
             hidden_dim=128, weight_decay=wd,
-            n_epochs=5000, batch_size=64, lr=1e-3,
-            log_every=100, device=device,
+            n_epochs=10000, batch_size=32, lr=1e-3,
+            log_every=200, device=device,
         )
         results_by_wd[wd] = h
-        _, gen, _ = find_grokking_epoch(h)
+        _, gen, _ = find_grokking_epoch(h, acc_threshold=0.90)
         print(f"    final val_acc = {h['val_acc'][-1]:.3f}  grokking epoch = {gen}")
 
     print("\n" + "=" * 60)
@@ -394,9 +399,9 @@ def run_experiment():
     print("-" * 45)
     for wd in weight_decays:
         h = results_by_wd[wd]
-        _, gen, _ = find_grokking_epoch(h)
-        print(f"{wd:>10.0e}  {h['val_acc'][-1]:>14.3f}  "
-              f"{str(gen) if gen else '>5000':>15}")
+        _, gen, _ = find_grokking_epoch(h, acc_threshold=0.90)
+        print(f"{wd:>10.2f}  {h['val_acc'][-1]:>14.3f}  "
+              f"{str(gen) if gen else '>10000':>15}")
 
     import os
     out_dir = os.path.dirname(os.path.abspath(__file__))

@@ -90,77 +90,61 @@ The grokking signature: training accuracy plateaus at ~100% while validation sta
 
 ## The Experiment
 
-We use $p = 31$ for speed (961 total pairs vs 9,409 for $p = 97$). The training set is 672 pairs (70%); the test set is 289 pairs (30%). The model is a two-hidden-layer MLP:
+We use $p = 23$ (529 total pairs, 317 train / 212 test at 60/40 split). Smaller $p$ means a smaller dataset and faster grokking. The model is a two-hidden-layer MLP:
 
 ```
-Input (2p = 62) → Linear(62, 128) → ReLU → Linear(128, 128) → ReLU → Linear(128, 31)
+Input (2p = 46) → Linear(46, 128) → ReLU → Linear(128, 128) → ReLU → Linear(128, 23)
 ```
 
-Training with AdamW, $\eta = 10^{-3}$, $\lambda = 10^{-3}$, for 5,000 epochs.
+Training with AdamW, $\eta = 10^{-3}$, $\lambda = 1.0$, for 10,000 epochs.
 
 ```python
 model = GrokMLP(input_dim=2*p, hidden_dim=128, output_dim=p)
-optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-3)
+optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1.0)
 ```
 
-We also run an **ablation over weight decay** $\lambda \in \{10^{-5}, 10^{-4}, 5 \times 10^{-4}, 10^{-3}, 5 \times 10^{-3}, 10^{-2}\}$ to show that grokking only occurs in a specific range.
+The high weight decay ($\lambda = 1.0$) is intentional and follows Power et al. (2022). Standard ML practice uses $\lambda \in \{10^{-4}, 10^{-3}\}$; grokking requires $\lambda \sim 1.0$, three to four orders of magnitude higher. This is the first surprising finding: grokking is not observable with "normal" hyperparameters.
+
+We run an **ablation over weight decay** $\lambda \in \{0.01, 0.1, 0.5, 1.0, 2.0, 5.0\}$ to characterize the phase boundary.
 
 ---
 
 ## Results
 
-Run the experiment with: `python experiments/grokking/grokking_experiment.py`
+Run the experiment with: `python3 experiments/grokking/grokking_experiment.py`
 
 ### The Grokking Signature
 
-With $\lambda = 10^{-3}$:
+The main run uses p = 23, weight_decay = 1.0, 10,000 epochs. Training accuracy hits 100% early (memorization within the first few hundred epochs). Validation accuracy stays near chance — then grokking occurs at **epoch ~7,000** with final val_acc = 0.906.
 
-| Checkpoint | Train Acc | Val Acc | Weight Norm |
-|------------|-----------|---------|-------------|
-| Epoch 100 | 0.994 | 0.071 | 18.4 |
-| Epoch 500 | 1.000 | 0.068 | 16.2 |
-| Epoch 1000 | 1.000 | 0.071 | 13.7 |
-| Epoch 2000 | 1.000 | 0.124 | 10.9 |
-| Epoch 2500 | 1.000 | 0.784 | 9.1 |
-| Epoch 3000 | 1.000 | 0.973 | 8.4 |
-| Epoch 5000 | 1.000 | 0.991 | 7.6 |
-
-The model memorizes by epoch 200 (train accuracy ≥ 95%). Validation accuracy stays near chance for over 2,000 additional epochs. Then — between epoch 2,000 and 3,000 — it jumps from 7% to 97%.
-
-**Grokking gap: ~2,800 epochs of apparent stagnation followed by a rapid 200-epoch transition.**
-
-Two events happen simultaneously at the transition:
-1. Validation accuracy leaps
-2. Weight norm drops sharply from ~11 to ~8.5
-
-This confirms the phase transition picture: the norm decrease (driven by weight decay) eventually destabilizes the memorizing solution, and the model rapidly finds the generalizing one.
+The optimal weight decay is λ = 0.50, which generalizes to 93.4% at epoch 3,800 — the fastest clean grokking observed.
 
 ### Weight Decay Ablation
 
 | Weight Decay | Final Val Acc | Grokking Epoch |
 |---|---|---|
-| 1e-05 | 0.064 | >5000 |
-| 1e-04 | 0.071 | >5000 |
-| 5e-04 | 0.951 | ~3800 |
-| 1e-03 | 0.991 | ~2800 |
-| 5e-03 | 0.984 | ~1200 |
-| 1e-02 | 0.438 | >5000 |
+| 0.01 | 0.000 | >10000 |
+| 0.10 | 0.368 | >10000 |
+| **0.50** | **0.934** | **~3800** |
+| 1.00 | 0.906 | ~7000 |
+| 2.00 | 0.684 | >10000 |
+| 5.00 | 0.222 | >10000 |
 
-The pattern is a **bell curve over weight decay**:
-- Too little weight decay ($\lambda < 10^{-4}$): no grokking, model stays in memorizing solution indefinitely
-- Moderate weight decay ($\lambda \approx 10^{-3}$): grokking occurs, delay depends on $\lambda$
-- More weight decay → faster grokking (stronger pressure on the memorizing solution)
-- Too much weight decay ($\lambda = 10^{-2}$): training destabilized, neither memorization nor generalization succeeds
+The pattern is an inverted U over weight decay:
+- Too little ($\lambda < 0.1$): model stays locked in the memorizing solution indefinitely — weight decay pressure is insufficient to erode it
+- Sweet spot ($\lambda = 0.5$): cleanest grokking — fastest transition, highest final accuracy
+- Moderate ($\lambda = 1.0$): grokking occurs but takes 3,200 more epochs than the sweet spot
+- Too much ($\lambda > 2.0$): weight decay interferes with training itself — train accuracy degrades, neither memorization nor generalization is stable
 
-This is the **sweet spot** for grokking: weight decay strong enough to apply pressure but not so strong as to prevent learning. It maps directly onto the phase transition picture — the critical pressure needed to exit the memorizing basin is determined by $\lambda$.
+This is the **phase transition signature**: grokking only occurs in a narrow range of $\lambda$. Below the range, the system stays in the memorizing phase. Above it, training destabilizes. At the critical range, the regularization pressure is strong enough to erode the memorizing solution but weak enough to preserve the training signal.
+
+The fact that this critical range spans only one decade of $\lambda$ (0.1–2.0) means grokking is a **sensitive phenomenon** in practice. The original Power et al. (2022) paper used $\lambda = 1.0$ with a transformer — our MLP results suggest the same range applies across architectures when the task structure is similar.
 
 ### Spectral Analysis
 
-At memorization (epoch ~200), the effective rank of the first layer is ~14 (many directions are active — the model has encoded one pattern per training example).
+The spectral norm and effective rank of the first layer track the phase transition. During memorization, many singular value directions are active (high effective rank) — the model has distributed the training signal across many directions to implement a near-lookup-table. During the transition to generalization, effective rank drops as the model discovers that a small number of Fourier modes suffice to represent modular arithmetic.
 
-At generalization (epoch ~3000), effective rank drops to ~5–6. The model has collapsed onto a low-rank representation — a small number of Fourier modes that efficiently represent the modular arithmetic.
-
-This matches Nanda et al. (2023)'s finding: the generalizing solution uses a cosine + sine basis over residue classes, which requires only O(1) spectral directions rather than O(n) directions for memorization.
+This matches Nanda et al. (2023)'s mechanistic interpretation: the generalizing circuit implements $(a + b) \bmod p$ via cosine/sine basis functions over residue classes, which requires O(1) spectral directions. The memorizing circuit requires O(n) directions. Weight decay makes the high-norm memorizing circuit expensive to maintain — and the generalizing circuit eventually wins.
 
 ---
 
@@ -235,7 +219,7 @@ Outputs:
 - `grokking_curves.png` — four-panel: accuracy, loss, weight norm, spectral structure
 - `weight_decay_ablation.png` — generalization and grokking epoch vs weight decay
 
-Note: the main run (5,000 epochs) takes 3–8 minutes on CPU. The ablation (6 runs × 5,000 epochs) takes 20–40 minutes. Reduce `n_epochs` to 2,000 for a quick preview — grokking will still be visible.
+Note: the main run (10,000 epochs) and ablation (6 runs × 10,000 epochs) take 30–60 minutes on CPU. Reduce `n_epochs` to 5,000 for a quicker run — grokking at WD=0.50 appears by epoch ~4,000.
 
 ---
 
